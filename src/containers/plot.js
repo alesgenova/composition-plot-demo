@@ -14,7 +14,9 @@ import { Slider} from '@material-ui/lab';
 
 import { QuaternaryPlot, Spectrum, colors } from 'composition-plot';
 // import PlotComponent from '../components/plot';
-import { fetchDataSet, fetchSample } from '../rest';
+import { fetchSamples, fetchSample } from '../rest';
+
+import { DataProvider } from 'composition-plot';
 
 class PlotComponentContainer extends Component {
 
@@ -25,7 +27,6 @@ class PlotComponentContainer extends Component {
   constructor(props) {
     super(props);
     this.state = {
-      dataSet: null,
       dataRange: [0, 1],
       colorMap: colors.viridis,
       colorMapRange: [0, 1],
@@ -47,37 +48,62 @@ class PlotComponentContainer extends Component {
   }
 
   componentWillMount() {
-    fetchDataSet()
+    fetchSamples()
       .then((val) => {
-        this.onNewDataSet(val);
+        this.onNewSamples(val);
       })
+    fetch('/sample-data/data.json')
+    .then(res => res.json())
+    .then(samples => {
+      console.log("SAMPLES", samples);
+      const dp = new DataProvider(4);
+      dp.setData(samples, false);
+      // console.log('AXES', dp.getAxes());
+      console.log(dp);
+      const filters = [
+        {element: 'mn', range: [0.1, 0.7]},
+        {element: 'fe', range: [0.1, 0.7]},
+        {element: 'co', range: [0.1, 0.7]},
+        {element: 'zn', range: [0.1, 0.1]},
+      ]
+      const filtered = dp.slice(filters);
+
+      const ternary_dp = new DataProvider(filtered, 3);
+      console.log('SLICE', filtered);
+      console.log(ternary_dp);
+
+    })
   }
 
   componentDidMount() {
-    this.quaternaryPlot = new QuaternaryPlot(this.compositionElement);
+    this.dp = new DataProvider([], 4);
+    this.quaternaryPlot = new QuaternaryPlot(this.compositionElement, this.dp);
     this.quaternaryPlot.setCallBacks(this.onSampleSelect, this.onSampleDeselect);
 
     this.spectraPlot = new Spectrum(this.spectraElement);
     this.spectraPlot.setOffset(this.state.yOffset);
   }
 
-  onNewDataSet(dataSet) {
-    const scalar = dataSet.scalars[0];
-    const dataRange = this.calculateRange(dataSet, scalar);
+  onNewSamples(samples) {
+    this.dp.setData(samples);
+    const scalar = this.dp.getDefaultScalar(this.state.scalar);
+    this.dp.setActiveScalar(scalar);
+    const dataRange = this.dp.getScalarRange(scalar);
     const colorMapRange = [...dataRange];
     const selectedSamples = [];
     const sampleFields = [];
-    this.quaternaryPlot.setData(dataSet);
-    this.quaternaryPlot.selectScalar(scalar);
+
     this.quaternaryPlot.setColorMap(this.state.colorMap, dataRange);
+    this.quaternaryPlot.dataUpdated();
+    this.quaternaryPlot.render();
     this.spectraPlot.removeSpectra();
-    this.setState({...this.state, dataSet, scalar, colorMapRange, dataRange, selectedSamples, sampleFields});
+    this.setState({...this.state, scalar, colorMapRange, dataRange, selectedSamples, sampleFields});
   }
 
   onScalarChange(scalar) {
-    const dataRange = this.calculateRange(this.state.dataSet, scalar);
+    this.dp.setActiveScalar(scalar);
+    const dataRange = this.dp.getScalarRange(scalar);
     const colorMapRange = [...dataRange];
-    this.quaternaryPlot.selectScalar(scalar);
     this.quaternaryPlot.setColorMap(this.state.colorMap, dataRange);
     this.setState({...this.state, scalar, colorMapRange, dataRange});
   }
@@ -122,14 +148,6 @@ class PlotComponentContainer extends Component {
     this.setState({...this.state, yOffset});
   }
 
-  calculateRange(dataSet, scalar) {
-    const scalarIdx = dataSet.scalars.findIndex((val) => val === scalar);
-    const values = dataSet.samples.map(sample => sample.values[scalarIdx]);
-    const min = Math.min(...values);
-    const max = Math.max(...values);
-    return [min, max];
-  }
-
   onSampleSelect = (d) => {
     fetchSample(d.id)
       .then(sample => {
@@ -167,8 +185,7 @@ class PlotComponentContainer extends Component {
   }
 
   render() {
-    const {dataSet} = this.state;
-    const scalars = has(dataSet, 'scalars') ? dataSet.scalars : [];
+    const scalars = this.dp ? this.dp.getScalars() : [];
     
     let scalarSelectOptions = [];
     for (let scalar of scalars) {
@@ -183,10 +200,6 @@ class PlotComponentContainer extends Component {
     let sampleFieldsSelectOptions = [];
     for (let name of this.state.sampleFields) {
       sampleFieldsSelectOptions.push(<MenuItem key={name} value={name}>{name}</MenuItem>)
-    }
-
-    if (!dataSet) {
-      // return (null);
     }
 
     return (

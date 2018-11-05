@@ -1,5 +1,5 @@
-export function fetchDataSet() {
-  return fetch(`sample-data/experiment.json`)
+export function fetchSamples() {
+  return fetch(`sample-data/data.json`)
     .then(res => {
       return res.json();
     });
